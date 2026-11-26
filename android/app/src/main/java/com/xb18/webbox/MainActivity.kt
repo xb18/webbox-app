@@ -243,7 +243,7 @@ class MainActivity : Activity() {
                 .apply { setMargins(dp(6), 0, 0, 0) }
         }
         val dialog = android.app.Dialog(this).apply {
-            setView(view)
+            setContentView(view)
             setCancelable(true)
         }
         later.setOnClickListener { dialog.dismiss() }
