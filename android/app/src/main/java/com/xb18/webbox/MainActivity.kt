@@ -14,6 +14,7 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -195,6 +196,18 @@ class MainActivity : Activity() {
         })
     }
 
+    /** 统一 Dialog 宽度与透明背景，避免内容窄时弹框塌缩或圆角被默认白底覆盖。 */
+    private fun styleDialog(dialog: android.app.Dialog) {
+        dialog.window?.apply {
+            setBackgroundDrawableResource(android.R.color.transparent)
+            val lp = attributes
+            lp.width = (resources.displayMetrics.widthPixels * 0.85f).toInt()
+            lp.height = WindowManager.LayoutParams.WRAP_CONTENT
+            lp.gravity = Gravity.CENTER
+            attributes = lp
+        }
+    }
+
     /** 显示/更新下载进度对话框。 */
     private fun showProgress(percent: Int) {
         if (progressDialog == null) {
@@ -222,6 +235,7 @@ class MainActivity : Activity() {
                 setContentView(box)
                 setCancelable(false)
             }
+            styleDialog(progressDialog!!)
             progressDialog?.show()
         }
         progressBar?.progress = percent.coerceIn(0, 100)
@@ -305,6 +319,7 @@ class MainActivity : Activity() {
             setContentView(view)
             setCancelable(true)
         }
+        styleDialog(dialog)
         later.setOnClickListener { dialog.dismiss() }
         confirm.setOnClickListener {
             dialog.dismiss()
