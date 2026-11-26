@@ -1,6 +1,7 @@
 package com.xb18.webbox
 
 import android.app.Activity
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ShortcutInfo
@@ -118,8 +119,11 @@ object ShortcutHelper {
                 .build()
             // 交给桌面弹确认框放置，比 requestPinShortcut(..., null) 兼容性更好
             val result = manager.createShortcutResultIntent(info) ?: return false
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            val pending = PendingIntent.getActivity(activity, 0, result, flags)
             activity.startIntentSenderForResult(
-                result.intentSender, REQUEST_PIN_SHORTCUT, null, 0, 0, 0, null)
+                pending.intentSender, REQUEST_PIN_SHORTCUT, null, 0, 0, 0, null)
             return true
         } else {
             @Suppress("DEPRECATION")

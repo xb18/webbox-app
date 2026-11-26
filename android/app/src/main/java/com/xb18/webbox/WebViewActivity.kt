@@ -32,6 +32,11 @@ class WebViewActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 网页铺满屏幕，状态栏用白底深图标，避免白底配白字看不清时间
+        window.statusBarColor = android.graphics.Color.WHITE
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility =
+            android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         targetUrl = intent.getStringExtra(EXTRA_URL) ?: ""
         if (targetUrl.isBlank()) {
             Toast.makeText(this, "无效网址", Toast.LENGTH_SHORT).show()
