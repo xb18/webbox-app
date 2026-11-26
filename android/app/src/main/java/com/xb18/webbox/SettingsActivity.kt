@@ -1,9 +1,13 @@
 package com.xb18.webbox
 
 import android.app.Activity
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.CompoundButton
@@ -88,11 +92,48 @@ class SettingsActivity : Activity() {
             setPadding(dp(24), dp(16), dp(24), 0)
         }
 
+        // 桌面快捷方式权限引导（小米/华为等 ROM 需手动开启）
+        val shortcutCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(dp(16), dp(20), dp(16), 0) }
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+        shortcutCard.addView(TextView(this).apply {
+            text = "桌面快捷方式权限"
+            textSize = 16f; setTextColor(textDark); setTypeface(null, Typeface.BOLD)
+        })
+        shortcutCard.addView(TextView(this).apply {
+            text = "若「添加到桌面」无反应，请在此应用的权限管理中开启「创建桌面快捷方式」后重试。"
+            textSize = 12f; setTextColor(textGray); setPadding(0, dp(6), 0, 0)
+        })
+        shortcutCard.addView(TextView(this).apply {
+            text = "打开应用设置"
+            textSize = 14f; setTextColor(Color.WHITE); setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER; setPadding(0, dp(10), 0, dp(10))
+            background = GradientDrawable().apply {
+                setColor(primary); cornerRadius = dp(10).toFloat()
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, dp(14), 0, 0) }
+            setOnClickListener {
+                try {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:$packageName")
+                    })
+                } catch (_: Exception) { /* 部分 ROM 无此设置页 */ }
+            }
+        })
+
         val scroll = ScrollView(this).apply {
             addView(LinearLayout(this@SettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(card)
                 addView(hint)
+                addView(shortcutCard)
             }, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }

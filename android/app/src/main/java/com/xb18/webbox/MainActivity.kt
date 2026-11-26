@@ -444,13 +444,6 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == ShortcutHelper.REQUEST_PIN_SHORTCUT && resultCode == RESULT_OK) {
-            Toast.makeText(this, R.string.shortcut_created, Toast.LENGTH_SHORT).show()
-        }
-    }
-
     /** site 为 null 时是新增，否则编辑。 */
     private fun showSiteDialog(site: Site?) {
         val layout = LinearLayout(this).apply {
