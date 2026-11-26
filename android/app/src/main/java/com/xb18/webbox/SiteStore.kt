@@ -55,6 +55,12 @@ class SiteStore(context: Context) {
         return site
     }
 
+    fun update(id: String, name: String, url: String) {
+        save(list().map { site ->
+            if (site.id == id) site.copy(name = name.trim(), url = normalizeUrl(url)) else site
+        })
+    }
+
     fun remove(id: String) {
         save(list().filterNot { it.id == id })
     }

@@ -76,7 +76,7 @@ class MainActivity : Activity() {
             setPadding(24, dp(16), 24, 0)
         }
         val addBtn = primaryButton("＋  ${getString(R.string.add_site)}")
-        addBtn.setOnClickListener { showAddDialog() }
+        addBtn.setOnClickListener { showSiteDialog(null) }
         val updateBtn = ghostButton(getString(R.string.menu_update))
         updateBtn.setOnClickListener { updater.checkUpdate() }
         actionsRow.addView(addBtn, LinearLayout.LayoutParams(0, dp(44), 1.4f).apply { setMargins(0, 0, 8, 0) })
@@ -229,14 +229,16 @@ class MainActivity : Activity() {
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val open = pillButton(getString(R.string.open), primary, true)
         open.setOnClickListener { openSite(site) }
-        val shortcut = pillButton(getString(R.string.add_shortcut), 0xFF6C5CE7.toInt(), false)
+        val edit = pillButton(getString(R.string.edit), 0xFF0EA5A0.toInt(), false)
+        edit.setOnClickListener { showSiteDialog(site) }
+        val shortcut = pillButton(getString(R.string.shortcut_short), 0xFF6C5CE7.toInt(), false)
         shortcut.setOnClickListener { requestAddShortcut(site) }
         val del = pillButton(getString(R.string.delete), 0xFFE5484D.toInt(), false)
         del.setOnClickListener { store.remove(site.id); refreshList() }
-        val lp = LinearLayout.LayoutParams(0, dp(36), 1f)
-        actions.addView(open, lp)
-        actions.addView(shortcut, LinearLayout.LayoutParams(0, dp(36), 1.3f).apply { setMargins(dp(6), 0, dp(6), 0) })
-        actions.addView(del, LinearLayout.LayoutParams(0, dp(36), 0.7f))
+        actions.addView(open, LinearLayout.LayoutParams(0, dp(36), 1f))
+        actions.addView(edit, LinearLayout.LayoutParams(0, dp(36), 0.9f).apply { setMargins(dp(5), 0, 0, 0) })
+        actions.addView(shortcut, LinearLayout.LayoutParams(0, dp(36), 0.9f).apply { setMargins(dp(5), 0, dp(5), 0) })
+        actions.addView(del, LinearLayout.LayoutParams(0, dp(36), 0.8f))
 
         card.apply { addView(head); addView(divider); addView(actions) }
         return card
@@ -263,22 +265,33 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showAddDialog() {
+    /** site 为 null 时是新增，否则编辑。 */
+    private fun showSiteDialog(site: Site?) {
         val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(24), dp(8), dp(24), 0) }
-        val nameInput = EditText(this).apply { hint = getString(R.string.site_name); inputType = InputType.TYPE_CLASS_TEXT; textSize = 15f }
+        val nameInput = EditText(this).apply {
+            hint = getString(R.string.site_name)
+            setText(site?.name.orEmpty())
+            inputType = InputType.TYPE_CLASS_TEXT; textSize = 15f
+        }
         val urlInput = EditText(this).apply {
             hint = getString(R.string.site_url)
+            setText(site?.url.orEmpty())
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             textSize = 15f; setPadding(0, dp(12), 0, 0)
         }
         layout.addView(nameInput); layout.addView(urlInput)
         AlertDialog.Builder(this)
-            .setTitle(R.string.add_site)
+            .setTitle(if (site == null) R.string.add_site else R.string.edit_site)
             .setView(layout)
             .setPositiveButton(R.string.save) { _, _ ->
                 val url = urlInput.text.toString().trim()
                 if (url.isEmpty()) { Toast.makeText(this, R.string.invalid_url, Toast.LENGTH_SHORT).show(); return@setPositiveButton }
-                store.add(nameInput.text.toString(), url)
+                val name = nameInput.text.toString()
+                if (site == null) {
+                    store.add(name, url)
+                } else {
+                    store.update(site.id, name, url)
+                }
                 refreshList()
             }
             .setNegativeButton(R.string.cancel, null)
