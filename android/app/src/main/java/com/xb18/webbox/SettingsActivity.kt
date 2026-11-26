@@ -89,7 +89,7 @@ class SettingsActivity : Activity() {
         }
 
         val scroll = ScrollView(this).apply {
-            addView(LinearLayout(this).apply {
+            addView(LinearLayout(this@SettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(card)
                 addView(hint)
