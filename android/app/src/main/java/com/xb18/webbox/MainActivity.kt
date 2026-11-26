@@ -298,6 +298,9 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f)
                 .apply { setMargins(dp(6), 0, 0, 0) }
         }
+        buttons.addView(later)
+        buttons.addView(confirm)
+        view.addView(buttons)
         val dialog = android.app.Dialog(this).apply {
             setContentView(view)
             setCancelable(true)
