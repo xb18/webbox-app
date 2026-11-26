@@ -146,6 +146,18 @@ class WebViewActivity : Activity() {
         else webView.restoreState(savedInstanceState)
     }
 
+    /** 同一站点重复点图标会复用任务：仅网址变化时才加载，保持原页面与滚动位置。 */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val url = intent.getStringExtra(EXTRA_URL).orEmpty()
+        if (url.isBlank() || !::webView.isInitialized) return
+        setIntent(intent)
+        if (url != targetUrl) {
+            targetUrl = url
+            webView.loadUrl(url)
+        }
+    }
+
     /** 节流采样，避免滚动时每帧抓图。 */
     private fun scheduleSample() {
         val now = System.currentTimeMillis()

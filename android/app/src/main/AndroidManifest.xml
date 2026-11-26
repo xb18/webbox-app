@@ -41,11 +41,13 @@
             android:exported="false" />
 
         <!-- 网页全屏容器；支持桌面快捷方式通过 URL 直达 -->
+        <!-- documentLaunchMode：按 intent data 区分文档，每个站点一个独立任务卡片与返回栈，
+             像独立 App 一样切换；同一站点重复点会回到已有窗口。 -->
         <activity
             android:name=".WebViewActivity"
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
+            android:documentLaunchMode="intoExisting"
             android:exported="false"
-            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize" />
     </application>
 

@@ -101,6 +101,11 @@ object ShortcutHelper {
         val name = site.name.ifBlank { hostOf(site.url) }
         val intent = Intent(activity, WebViewActivity::class.java).apply {
             action = Intent.ACTION_VIEW
+            // data 作为文档唯一标识：同一站点复用文档，不同站点各自独立窗口
+            data = Uri.parse("webbox://site/${site.id}")
+            // 文档式多任务：配合 Manifest 的 documentLaunchMode，
+            // 每个快捷方式独立成一张最近任务卡片与返回栈，像独立 App 一样切换
+            addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
             putExtra(WebViewActivity.EXTRA_URL, site.url)
             putExtra(WebViewActivity.EXTRA_NAME, site.name)
         }
