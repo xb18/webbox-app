@@ -5,6 +5,8 @@
     <string name="site_name">名称</string>
     <string name="site_url">网址</string>
     <string name="save">保存</string>
+    <string name="site_name_hint">例如：DSH 面板</string>
+    <string name="site_url_hint">例如：dsh.202921.xyz</string>
     <string name="cancel">取消</string>
     <string name="open">打开</string>
     <string name="edit">编辑</string>
@@ -12,7 +14,7 @@
     <string name="add_shortcut">添加到桌面</string>
     <string name="shortcut_short">桌面</string>
     <string name="delete">删除</string>
-    <string name="empty_hint">还没有网址，点右上角添加</string>
+    <string name="empty_hint">还没有网址，点上方「＋ 添加网址」开始</string>
     <string name="shortcut_created">已添加到桌面</string>
     <string name="shortcut_failed">添加失败，请检查桌面权限</string>
     <string name="invalid_url">请输入有效网址（http 或 https）</string>

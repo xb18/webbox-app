@@ -255,47 +255,83 @@ class MainActivity : Activity() {
         executor.execute {
             val favicon = ShortcutHelper.fetchFavicon(this, site.url)
             mainHandler.post {
-                try {
+                val started = try {
                     ShortcutHelper.create(this, site, favicon)
-                    Toast.makeText(this, R.string.shortcut_created, Toast.LENGTH_SHORT).show()
                 } catch (_: Exception) {
+                    false
+                }
+                if (!started) {
                     Toast.makeText(this, R.string.shortcut_failed, Toast.LENGTH_SHORT).show()
                 }
             }
         }
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == ShortcutHelper.REQUEST_PIN_SHORTCUT &&
+            resultCode == RESULT_OK) {
+            Toast.makeText(this, R.string.shortcut_created, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     /** site 为 null 时是新增，否则编辑。 */
     private fun showSiteDialog(site: Site?) {
-        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(24), dp(8), dp(24), 0) }
+        val padding = dp(16)
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, dp(8), padding, dp(4))
+        }
+        val nameLabel = TextView(this).apply {
+            text = getString(R.string.site_name); textSize = 13f
+            setTextColor(textGray); setPadding(dp(2), 0, 0, dp(4))
+        }
         val nameInput = EditText(this).apply {
-            hint = getString(R.string.site_name)
+            hint = getString(R.string.site_name_hint)
             setText(site?.name.orEmpty())
             inputType = InputType.TYPE_CLASS_TEXT; textSize = 15f
+            setTextColor(textDark)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = inputBackground()
+        }
+        val urlLabel = TextView(this).apply {
+            text = getString(R.string.site_url); textSize = 13f
+            setTextColor(textGray); setPadding(dp(2), 0, 0, dp(4))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, dp(14), 0, 0) }
         }
         val urlInput = EditText(this).apply {
-            hint = getString(R.string.site_url)
+            hint = getString(R.string.site_url_hint)
             setText(site?.url.orEmpty())
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            textSize = 15f; setPadding(0, dp(12), 0, 0)
+            textSize = 15f; setTextColor(textDark)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = inputBackground()
         }
-        layout.addView(nameInput); layout.addView(urlInput)
+        layout.apply { addView(nameLabel); addView(nameInput); addView(urlLabel); addView(urlInput) }
+
         AlertDialog.Builder(this)
             .setTitle(if (site == null) R.string.add_site else R.string.edit_site)
             .setView(layout)
             .setPositiveButton(R.string.save) { _, _ ->
                 val url = urlInput.text.toString().trim()
-                if (url.isEmpty()) { Toast.makeText(this, R.string.invalid_url, Toast.LENGTH_SHORT).show(); return@setPositiveButton }
-                val name = nameInput.text.toString()
-                if (site == null) {
-                    store.add(name, url)
-                } else {
-                    store.update(site.id, name, url)
+                if (url.isEmpty()) {
+                    Toast.makeText(this, R.string.invalid_url, Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
                 }
+                val name = nameInput.text.toString()
+                if (site == null) store.add(name, url) else store.update(site.id, name, url)
                 refreshList()
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+    }
+
+    private fun inputBackground(): GradientDrawable = GradientDrawable().apply {
+        setColor(0xFFF7F7FB.toInt())
+        setStroke(dp(1), 0xFFE3E3EC.toInt())
+        cornerRadius = dp(10).toFloat()
     }
 
     // ---------- UI 辅助 ----------

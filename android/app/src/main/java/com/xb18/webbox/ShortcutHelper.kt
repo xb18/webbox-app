@@ -1,5 +1,6 @@
 package com.xb18.webbox
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ShortcutInfo
@@ -19,10 +20,13 @@ import java.net.URL
 
 /**
  * 桌面快捷方式：为指定网址生成可直达的图标（类似小程序添加到桌面）。
- * API 26+ 走 ShortcutManager 动态快捷方式；更低版本用旧版 ACTION_INSTALL_SHORTCUT。
+ * API 26+ 用 ShortcutManager 的 createShortcutResultIntent 交给桌面弹确认框放置；
+ * 更低版本用旧版 ACTION_INSTALL_SHORTCUT 广播。
  * 图标优先取站点 favicon，取不到则回退到带首字母的色块图标。
  */
 object ShortcutHelper {
+
+    const val REQUEST_PIN_SHORTCUT = 1001
 
     /** 抓取站点 favicon 并缓存到内部存储；失败返回 null。 */
     fun fetchFavicon(context: Context, siteUrl: String): File? {
@@ -66,11 +70,10 @@ object ShortcutHelper {
         null
     }
 
-    /** 生成快捷方式图标：优先 favicon 文件，否则用首字母色块。 */
-    fun buildIcon(context: Context, site: Site, favicon: File?): Icon {
+    /** 创建快捷方式图标：优先 favicon 文件，否则用首字母色块。 */
+    fun buildIcon(site: Site, favicon: File?): Icon {
         val bitmap = favicon?.takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.absolutePath) }
             ?: letterBitmap(site.name.ifBlank { site.url })
-        // 仅在 API 26+ 分支调用（见 create），此处无需再做版本判断。
         return Icon.createWithBitmap(bitmap)
     }
 
@@ -93,39 +96,49 @@ object ShortcutHelper {
     }
 
     /**
-     * 创建桌面快捷方式。shortcutId 用 site.id，重复添加同一网址会更新而不是堆叠。
-     * 低版本通过广播请求桌面添加，返回值不代表用户已确认。
+     * 请求创建桌面快捷方式。返回 true 表示已发起系统放置流程（API 26+ 会弹确认框）。
+     * shortcutId 用 site.id，重复添加同一网址会更新而不是堆叠。
      */
-    fun create(context: Context, site: Site, favicon: File?) {
-        val intent = Intent(context, WebViewActivity::class.java).apply {
+    fun create(activity: Activity, site: Site, favicon: File?): Boolean {
+        val name = site.name.ifBlank { hostOf(site.url) }
+        val intent = Intent(activity, WebViewActivity::class.java).apply {
             action = Intent.ACTION_VIEW
             putExtra(WebViewActivity.EXTRA_URL, site.url)
             putExtra(WebViewActivity.EXTRA_NAME, site.name)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val icon = buildIcon(context, site, favicon)
-            val manager = context.getSystemService(ShortcutManager::class.java) ?: return
-            val info = ShortcutInfo.Builder(context, site.id)
-                .setShortLabel(site.name.ifBlank { site.url })
-                .setLongLabel(site.name.ifBlank { site.url })
-                .setIcon(icon)
+            val manager = activity.getSystemService(ShortcutManager::class.java) ?: return false
+            if (!manager.isRequestPinShortcutSupported) return false
+            val info = ShortcutInfo.Builder(activity, site.id)
+                .setShortLabel(name)
+                .setLongLabel(name)
+                .setIcon(buildIcon(site, favicon))
                 .setIntent(intent)
                 .build()
-            manager.requestPinShortcut(info, null)
+            // 交给桌面弹确认框放置，比 requestPinShortcut(..., null) 兼容性更好
+            val result = manager.createShortcutResultIntent(info) ?: return false
+            activity.startIntentSenderForResult(
+                result.intentSender, REQUEST_PIN_SHORTCUT, null, 0, 0, 0, null)
+            return true
         } else {
             @Suppress("DEPRECATION")
             val legacy = Intent("com.android.launcher.action.INSTALL_SHORTCUT").apply {
                 putExtra(Intent.EXTRA_SHORTCUT_INTENT, intent)
-                putExtra(Intent.EXTRA_SHORTCUT_NAME, site.name.ifBlank { site.url })
+                putExtra(Intent.EXTRA_SHORTCUT_NAME, name)
                 putExtra("duplicate", false)
-                putExtra(
-                    Intent.EXTRA_SHORTCUT_ICON,
-                    favicon?.takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.absolutePath) }
-                        ?: letterBitmap(site.name.ifBlank { site.url }),
-                )
+                putExtra(Intent.EXTRA_SHORTCUT_ICON, legacyIcon(site, favicon))
             }
-            context.sendBroadcast(legacy)
+            activity.sendBroadcast(legacy)
+            return true
         }
     }
+
+    private fun legacyIcon(site: Site, favicon: File?): Bitmap =
+        favicon?.takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.absolutePath) }
+            ?: letterBitmap(site.name.ifBlank { site.url })
+
+    private fun hostOf(url: String): String = try {
+        Uri.parse(SiteStore.normalizeUrl(url)).host ?: url
+    } catch (_: Exception) { url }
 }
