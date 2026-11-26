@@ -15,8 +15,8 @@
     <string name="shortcut_short">桌面</string>
     <string name="delete">删除</string>
     <string name="empty_hint">还没有网址，点上方「＋ 添加网址」开始</string>
-    <string name="shortcut_created">已添加到桌面</string>
-    <string name="shortcut_failed">添加失败，请检查桌面权限</string>
+    <string name="shortcut_created">已发起添加，请到桌面确认图标</string>
+    <string name="shortcut_failed">添加失败，请确认桌面支持快捷方式</string>
     <string name="invalid_url">请输入有效网址（http 或 https）</string>
     <string name="press_back_again">再按一次返回退出</string>
     <string name="menu_update">检查更新</string>

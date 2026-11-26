@@ -97,7 +97,8 @@ object ShortcutHelper {
     }
 
     /**
-     * 请求创建桌面快捷方式。返回 true 表示已发起系统放置流程（API 26+ 会弹确认框）。
+     * 请求创建桌面快捷方式。返回 true 表示已发起放置流程（可能需用户在桌面确认）。
+     * API 26+ 优先走 ShortcutManager；不支持时回退旧版广播，兼容小米等定制桌面。
      * shortcutId 用 site.id，重复添加同一网址会更新而不是堆叠。
      */
     fun create(activity: Activity, site: Site, favicon: File?): Boolean {
@@ -109,33 +110,45 @@ object ShortcutHelper {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = activity.getSystemService(ShortcutManager::class.java) ?: return false
-            if (!manager.isRequestPinShortcutSupported) return false
-            val info = ShortcutInfo.Builder(activity, site.id)
-                .setShortLabel(name)
-                .setLongLabel(name)
-                .setIcon(buildIcon(site, favicon))
-                .setIntent(intent)
-                .build()
-            // 交给桌面弹确认框放置，比 requestPinShortcut(..., null) 兼容性更好
-            val result = manager.createShortcutResultIntent(info) ?: return false
-            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
-            val pending = PendingIntent.getActivity(activity, 0, result, flags)
-            activity.startIntentSenderForResult(
-                pending.intentSender, REQUEST_PIN_SHORTCUT, null, 0, 0, 0, null)
-            return true
-        } else {
-            @Suppress("DEPRECATION")
-            val legacy = Intent("com.android.launcher.action.INSTALL_SHORTCUT").apply {
-                putExtra(Intent.EXTRA_SHORTCUT_INTENT, intent)
-                putExtra(Intent.EXTRA_SHORTCUT_NAME, name)
-                putExtra("duplicate", false)
-                putExtra(Intent.EXTRA_SHORTCUT_ICON, legacyIcon(site, favicon))
+            val manager = activity.getSystemService(ShortcutManager::class.java)
+            if (manager != null && manager.isRequestPinShortcutSupported) {
+                val info = ShortcutInfo.Builder(activity, site.id)
+                    .setShortLabel(name)
+                    .setLongLabel(name)
+                    .setIcon(buildIcon(site, favicon))
+                    .setIntent(intent)
+                    .build()
+                val result = manager.createShortcutResultIntent(info)
+                if (result != null) {
+                    val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+                    val pending = PendingIntent.getActivity(activity, 0, result, flags)
+                    activity.startIntentSenderForResult(
+                        pending.intentSender, REQUEST_PIN_SHORTCUT, null, 0, 0, 0, null)
+                    return true
+                }
             }
-            activity.sendBroadcast(legacy)
-            return true
+            // 标准流程不可用，回退旧广播（小米/澎湃等定制桌面常依赖此方式）
+            return sendLegacyBroadcast(activity, site, name, intent, favicon)
+        } else {
+            return sendLegacyBroadcast(activity, site, name, intent, favicon)
         }
+    }
+
+    private fun sendLegacyBroadcast(
+        activity: Activity, site: Site, name: String, intent: Intent, favicon: File?,
+    ): Boolean = try {
+        @Suppress("DEPRECATION")
+        val legacy = Intent("com.android.launcher.action.INSTALL_SHORTCUT").apply {
+            putExtra(Intent.EXTRA_SHORTCUT_INTENT, intent)
+            putExtra(Intent.EXTRA_SHORTCUT_NAME, name)
+            putExtra("duplicate", false)
+            putExtra(Intent.EXTRA_SHORTCUT_ICON, legacyIcon(site, favicon))
+        }
+        activity.sendBroadcast(legacy)
+        true
+    } catch (_: Exception) {
+        false
     }
 
     private fun legacyIcon(site: Site, favicon: File?): Bitmap =

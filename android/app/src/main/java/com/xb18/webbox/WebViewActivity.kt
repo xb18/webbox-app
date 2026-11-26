@@ -22,7 +22,6 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.Toast
-import androidx.core.view.WindowInsetsControllerCompat
 
 /**
  * 全屏网页容器：WebView 铺满屏幕，不注入任何 JS，靠系统返回键导航。
@@ -106,6 +105,7 @@ class WebViewActivity : Activity() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 progress.visibility = View.GONE
+                applyTextSelection()
                 handler.postDelayed({ scheduleSample() }, 150)
             }
 
@@ -133,6 +133,24 @@ class WebViewActivity : Activity() {
 
         if (savedInstanceState == null) webView.loadUrl(targetUrl)
         else webView.restoreState(savedInstanceState)
+    }
+
+    /** 按设置禁用网页文字选择，避免长按弹出系统复制菜单。 */
+    private fun applyTextSelection() {
+        if (Prefs.textSelectionEnabled(this)) return
+        val css = """
+            (function(){
+              var s = document.createElement('style');
+              s.id = '__webbox_no_select';
+              s.textContent = '*,*::before,*::after{' +
+                '-webkit-user-select:none!important;user-select:none!important;' +
+                '-webkit-touch-callout:none!important}';
+              if (!document.getElementById('__webbox_no_select')) {
+                (document.head || document.documentElement).appendChild(s);
+              }
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(css, null)
     }
 
     /** 节流采样，避免滚动时每帧抓图。 */
@@ -179,10 +197,9 @@ class WebViewActivity : Activity() {
     private fun setLightIcons(light: Boolean) {
         if (light == lightIcons) return
         lightIcons = light
-        val controller = WindowInsetsControllerCompat(window, window.decorView)
-        // 0x08 = APPEARANCE_LIGHT_STATUS_BARS，用字面值避免低版本引用 API 30 常量
-        val mask = 0x08
-        controller.setSystemBarsAppearance(if (light) mask else 0, mask)
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility =
+            if (light) View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR else 0
     }
 
     private fun statusBarHeightPx(): Int {
