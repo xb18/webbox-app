@@ -70,9 +70,9 @@ class WebViewActivity : Activity() {
                 return super.startActionMode(callback)
             }
 
-            override fun startActionMode(type: Int, callback: ActionMode.Callback?): ActionMode? {
+            override fun startActionMode(callback: ActionMode.Callback?, type: Int): ActionMode? {
                 if (!Prefs.textSelectionEnabled(this@WebViewActivity)) return null
-                return super.startActionMode(type, callback)
+                return super.startActionMode(callback, type)
             }
         }.apply {
             layoutParams = ViewGroup.LayoutParams(
