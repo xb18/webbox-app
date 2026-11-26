@@ -1,0 +1,159 @@
+name: 打包网页盒安卓壳
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 版本号（如 1.0.1），留空用 gradle.properties 的 shellVersionName
+        required: false
+        type: string
+  push:
+    tags:
+      - 'android-v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: webbox-android-build-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 构建 APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 确认 Android SDK 环境
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME:-未设置}"
+          if [ -z "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" ]; then
+            echo "未找到 Android SDK" >&2; exit 1
+          fi
+
+      - name: 安装编译所需 SDK 组件（已存在则跳过）
+        shell: bash
+        run: |
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          SDKMANAGER="$(find "$SDK/cmdline-tools" -name sdkmanager -type f | head -n1)"
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --sdk_root="$SDK" "platforms;android-35" "build-tools;35.0.0" || true
+          fi
+          test -d "$SDK/platforms/android-35" || { echo "缺少 Android 35 platform" >&2; exit 1; }
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: 计算版本号
+        id: ver
+        shell: bash
+        run: |
+          input="${{ inputs.version }}"
+          if [ -n "$input" ]; then version="$input"
+          elif [[ "${GITHUB_REF_NAME}" == android-v* ]]; then version="${GITHUB_REF_NAME#android-v}"
+          else version="$(grep '^shellVersionName=' android/gradle.properties | cut -d= -f2)"; fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: 写入版本号
+        if: ${{ inputs.version != '' || startsWith(github.ref_name, 'android-v') }}
+        shell: bash
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          sed -i "s/^shellVersionName=.*/shellVersionName=${v}/" android/gradle.properties
+          if [[ "${GITHUB_REF_NAME}" == android-v* ]]; then
+            code=$((10#$(echo "$v" | tr -cd '0-9' | head -c 9)))
+          else
+            code=$(date +%s | tail -c 9)
+          fi
+          [ -z "$code" ] && code=1
+          sed -i "s/^shellVersionCode=.*/shellVersionCode=${code}/" android/gradle.properties
+
+      - name: 构建 Debug APK
+        working-directory: android
+        run: gradle assembleDebug --no-daemon
+
+      - name: 定位 APK
+        id: apk
+        shell: bash
+        run: |
+          apk="$(find android/app/build/outputs/apk/debug -name '*.apk' -type f | head -n1)"
+          if [ -z "$apk" ]; then echo "未找到 APK 产物" >&2; exit 1; fi
+          name="webbox-app-${{ steps.ver.outputs.version }}.apk"
+          cp "$apk" "$name"
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+          echo "size=$(du -h "$name" | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: 上传 APK 制品
+        uses: actions/upload-artifact@v4
+        with:
+          name: webbox-app-apk
+          path: ${{ steps.apk.outputs.name }}
+          if-no-files-found: error
+
+      - name: 通过 WebDAV 发布 APK 与更新索引到通用分发目录
+        if: startsWith(github.ref_name, 'android-v')
+        shell: bash
+        env:
+          WEBDAV_URL: ${{ secrets.WEBDAV_URL }}
+          WEBDAV_USERNAME: ${{ secrets.WEBDAV_USERNAME }}
+          WEBDAV_PASSWORD: ${{ secrets.WEBDAV_PASSWORD }}
+          WEBDAV_DIR: ${{ vars.WEBDAV_DIR || 'lanzou/appdist' }}
+          PUBLIC_BASE: ${{ vars.PUBLIC_BASE || 'https://pan.202921.xyz/sd/59uaf2bR' }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          APK_NAME: ${{ steps.apk.outputs.name }}
+        run: |
+          missing=""
+          [ -z "$WEBDAV_URL" ] && missing="$missing WEBDAV_URL"
+          [ -z "$WEBDAV_USERNAME" ] && missing="$missing WEBDAV_USERNAME"
+          [ -z "$WEBDAV_PASSWORD" ] && missing="$missing WEBDAV_PASSWORD"
+          if [ -n "$missing" ]; then echo "缺少配置:$missing" >&2; exit 1; fi
+          base="${WEBDAV_URL%/}"
+          dir="${WEBDAV_DIR#/}"
+          auth=(-u "$WEBDAV_USERNAME:$WEBDAV_PASSWORD")
+          apk_file="$(basename "$APK_NAME")"
+          size=$(wc -c < "$APK_NAME" | tr -d ' ')
+          index_file="webbox-app-update.txt"
+
+          echo "上传 APK: $dir/$apk_file ($size 字节)"
+          curl -fsS "${auth[@]}" -T "$APK_NAME" "$base/$dir/$apk_file"
+
+          python3 - "$apk_file" "$VERSION" "$PUBLIC_BASE" "$size" > "$index_file" <<'PY'
+          import json, sys
+          apk, version, public_base, size = sys.argv[1:5]
+          print(json.dumps({
+              "version": version,
+              "url": public_base.rstrip("/") + "/" + apk,
+              "notes": "网页盒更新",
+              "size": int(size),
+          }, ensure_ascii=False, indent=2))
+          PY
+          echo "上传更新索引:"
+          cat "$index_file"
+          curl -fsS "${auth[@]}" -T "$index_file" "$base/$dir/$index_file"
+          echo "发布完成"
+
+      - name: 创建 GitHub Release
+        if: startsWith(github.ref_name, 'android-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: 网页盒 ${{ steps.ver.outputs.version }}
+          body: |
+            通用网页容器：手动添加网址，可为每个网址添加到桌面直达。
+            网页内容更新无需重新安装；仅壳本身升级时才发新版。
+          files: ${{ steps.apk.outputs.name }}
+
+      - name: 输出摘要
+        shell: bash
+        run: |
+          echo "### 网页盒打包完成" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 版本：${{ steps.ver.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- APK：${{ steps.apk.outputs.name }}（${{ steps.apk.outputs.size }}）" >> "$GITHUB_STEP_SUMMARY"
