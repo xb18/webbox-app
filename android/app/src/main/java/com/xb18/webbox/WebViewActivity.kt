@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.ActionMode
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -62,6 +63,17 @@ class WebViewActivity : Activity() {
                 super.onScrollChanged(l, t, oldL, oldT)
                 scheduleSample()
             }
+
+            // 关闭悬浮复制菜单：保留文字选中，只拦截弹出的工具条
+            override fun startActionMode(callback: ActionMode.Callback?): ActionMode? {
+                if (!Prefs.textSelectionEnabled(this@WebViewActivity)) return null
+                return super.startActionMode(callback)
+            }
+
+            override fun startActionMode(type: Int, callback: ActionMode.Callback?): ActionMode? {
+                if (!Prefs.textSelectionEnabled(this@WebViewActivity)) return null
+                return super.startActionMode(type, callback)
+            }
         }.apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -105,7 +117,6 @@ class WebViewActivity : Activity() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 progress.visibility = View.GONE
-                applyTextSelection()
                 handler.postDelayed({ scheduleSample() }, 150)
             }
 
@@ -133,24 +144,6 @@ class WebViewActivity : Activity() {
 
         if (savedInstanceState == null) webView.loadUrl(targetUrl)
         else webView.restoreState(savedInstanceState)
-    }
-
-    /** 按设置禁用网页文字选择，避免长按弹出系统复制菜单。 */
-    private fun applyTextSelection() {
-        if (Prefs.textSelectionEnabled(this)) return
-        val css = """
-            (function(){
-              var s = document.createElement('style');
-              s.id = '__webbox_no_select';
-              s.textContent = '*,*::before,*::after{' +
-                '-webkit-user-select:none!important;user-select:none!important;' +
-                '-webkit-touch-callout:none!important}';
-              if (!document.getElementById('__webbox_no_select')) {
-                (document.head || document.documentElement).appendChild(s);
-              }
-            })();
-        """.trimIndent()
-        webView.evaluateJavascript(css, null)
     }
 
     /** 节流采样，避免滚动时每帧抓图。 */

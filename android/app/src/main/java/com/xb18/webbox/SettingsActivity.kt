@@ -12,7 +12,7 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 
-/** 设置页：网页文字选择开关（默认关，关闭后长按网页不弹出复制菜单）。 */
+/** 设置页：网页选中悬浮菜单开关（默认关，关闭后仍可选中文字，只是不弹系统工具条）。 */
 class SettingsActivity : Activity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private val primary = 0xFF5B4BE6.toInt()
@@ -56,13 +56,13 @@ class SettingsActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         val title = TextView(this).apply {
-            text = "网页文字选择"
+            text = "选中悬浮菜单"
             textSize = 16f
             setTextColor(textDark)
             setTypeface(null, Typeface.BOLD)
         }
         val desc = TextView(this).apply {
-            text = "开启后长按网页可选中并复制文字；默认关闭"
+            text = "网页文字始终可选中；开启后选中时弹出系统复制工具条，默认关闭"
             textSize = 12f
             setTextColor(textGray)
             setPadding(0, dp(4), 0, 0)
@@ -82,7 +82,7 @@ class SettingsActivity : Activity() {
         card.addView(row)
 
         val hint = TextView(this).apply {
-            text = "提示：关闭后可避免误触系统自带的复制菜单；如需从网页复制内容，可临时开启。"
+            text = "提示：关闭只隐藏系统悬浮菜单，长按选择文字仍可用；如需用系统复制/分享按钮，可临时开启。"
             textSize = 12f
             setTextColor(textGray)
             setPadding(dp(24), dp(16), dp(24), 0)

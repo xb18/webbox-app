@@ -31,6 +31,9 @@ class MainActivity : Activity() {
     private lateinit var updater: Updater
     private val executor = Executors.newFixedThreadPool(3)
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var progressDialog: android.app.Dialog? = null
+    private var progressBar: android.widget.ProgressBar? = null
+    private var progressText: TextView? = null
 
     private val primary = 0xFF5B4BE6.toInt()
     private val textDark = 0xFF1F2233.toInt()
@@ -79,19 +82,25 @@ class MainActivity : Activity() {
         }
         header.addView(title); header.addView(subtitle)
 
-        // 三个圆形操作按钮
-        val actions = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(24), dp(18), dp(24), dp(4))
+        // 主操作：醒目的添加按钮
+        val addBar = primaryButton("＋  添加网址") { showSiteDialog(null) }
+        val addWrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(18), dp(20), dp(6))
+            addView(addBar, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
         }
-        actions.addView(circleAction("＋", "添加网址") { showSiteDialog(null) })
-        actions.addView(circleAction("⚙", "设置") {
+
+        // 次操作：设置 / 检查更新，等宽卡片
+        val secondary = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(20), 0, dp(20), dp(6))
+        }
+        secondary.addView(secondaryButton("⚙  设置") {
             startActivity(Intent(this, SettingsActivity::class.java))
-        }.apply { layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { setMargins(dp(20), 0, dp(20), 0) } })
-        actions.addView(circleAction("↻", "检查更新") { updater.checkUpdate() })
+        }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(0, 0, dp(5), 0) })
+        secondary.addView(secondaryButton("↻  检查更新") { updater.checkUpdate() },
+            LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(dp(5), 0, 0, 0) })
 
         listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         emptyState = LinearLayout(this).apply {
@@ -121,62 +130,109 @@ class MainActivity : Activity() {
         }
         root.apply {
             addView(header)
-            addView(actions)
+            addView(addWrap)
+            addView(secondary)
             addView(scroll, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         }
         return root
     }
 
-    /** 圆形图标 + 下方文字的操作按钮。 */
-    private fun circleAction(icon: String, label: String, onClick: () -> Unit): View {
-        val wrapper = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setOnClickListener { onClick() }
+    /** 醒目主按钮：纯色胶囊 + 白字。 */
+    private fun primaryButton(text: String, onClick: () -> Unit): TextView = TextView(this).apply {
+        this.text = text
+        textSize = 15f
+        setTextColor(Color.WHITE)
+        setTypeface(null, Typeface.BOLD)
+        gravity = Gravity.CENTER
+        background = GradientDrawable().apply {
+            setColor(primary); cornerRadius = dp(14).toFloat()
         }
-        val round = TextView(this).apply {
-            text = icon
-            textSize = 26f
-            setTextColor(Color.WHITE)
-            setTypeface(null, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(primary)
-            }
-            layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
+        setOnClickListener { onClick() }
+    }
+
+    /** 次要按钮：白底描边胶囊 + 主色文字。 */
+    private fun secondaryButton(text: String, onClick: () -> Unit): TextView = TextView(this).apply {
+        this.text = text
+        textSize = 14f
+        setTextColor(primary)
+        gravity = Gravity.CENTER
+        background = GradientDrawable().apply {
+            setColor(Color.WHITE); setStroke(dp(1), 0xFFDDD9F7.toInt())
+            cornerRadius = dp(12).toFloat()
         }
-        val text = TextView(this).apply {
-            this.text = label
-            textSize = 12f
-            setTextColor(textGray)
-            gravity = Gravity.CENTER
-            setPadding(0, dp(6), 0, 0)
-        }
-        wrapper.addView(round); wrapper.addView(text)
-        return wrapper
+        setOnClickListener { onClick() }
     }
 
     private fun setupUpdater() {
         updater = Updater(this, object : Updater.Callback {
             override fun onEvent(type: String, data: org.json.JSONObject) {
-                if (type == Updater.EVENT_DOWNLOAD_DONE) {
-                    mainHandler.post {
+                when (type) {
+                    Updater.EVENT_PROGRESS -> mainHandler.post {
+                        showProgress(data.optInt("percent"))
+                    }
+                    Updater.EVENT_DOWNLOAD_DONE -> mainHandler.post {
+                        dismissProgress()
                         if (updater.canInstall()) updater.installUpdate() else updater.requestInstallPermission()
                     }
-                    return
-                }
-                if (type != Updater.EVENT_CHECK) return
-                mainHandler.post {
-                    if (data.optBoolean("ok") && data.optBoolean("hasUpdate")) {
-                        showUpdateDialog(data)
-                    } else {
-                        Toast.makeText(this@MainActivity, R.string.up_to_date, Toast.LENGTH_SHORT).show()
+                    Updater.EVENT_DOWNLOAD_ERROR -> mainHandler.post {
+                        dismissProgress()
+                        Toast.makeText(
+                            this@MainActivity,
+                            "下载失败：${data.optString("error")}",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                    Updater.EVENT_CHECK -> mainHandler.post {
+                        if (data.optBoolean("ok") && data.optBoolean("hasUpdate")) {
+                            showUpdateDialog(data)
+                        } else {
+                            Toast.makeText(this@MainActivity, R.string.up_to_date, Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             }
         })
+    }
+
+    /** 显示/更新下载进度对话框。 */
+    private fun showProgress(percent: Int) {
+        if (progressDialog == null) {
+            val bar = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 100
+            }
+            val label = TextView(this).apply {
+                text = "正在下载更新…"
+                textSize = 14f; setTextColor(textDark); setTypeface(null, Typeface.BOLD)
+                setPadding(0, 0, 0, dp(10))
+            }
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(24), dp(22), dp(24), dp(22))
+                background = GradientDrawable().apply {
+                    setColor(Color.WHITE); cornerRadius = dp(20).toFloat()
+                }
+                addView(label)
+                addView(bar, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            }
+            progressBar = bar
+            progressText = label
+            progressDialog = android.app.Dialog(this).apply {
+                setContentView(box)
+                setCancelable(false)
+            }
+            progressDialog?.show()
+        }
+        progressBar?.progress = percent.coerceIn(0, 100)
+        progressText?.text = "正在下载更新… $percent%"
+    }
+
+    private fun dismissProgress() {
+        progressDialog?.dismiss()
+        progressDialog = null
+        progressBar = null
+        progressText = null
     }
 
     /** 自定义更新弹框：版本徽标 + 说明 + 圆角操作按钮。 */
