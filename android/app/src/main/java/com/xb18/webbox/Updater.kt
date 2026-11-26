@@ -203,7 +203,7 @@ class Updater(
     companion object {
         private const val KEY_SOURCE = "update_source"
         // 更新包走 Cloudflare R2 自定义域：公共文件夹 appdist/<app> 下按 app 分目录，端侧匿名下载
-        private const val DEFAULT_SOURCE = "https://pan.202921.xyz/sd/59uaf2bR/webbox-app-update.txt"
+        private const val DEFAULT_SOURCE = "https://dl.202921.xyz/appdist/webbox/webbox-app-update.txt"
         const val EVENT_CHECK = "updateCheck"
         const val EVENT_PROGRESS = "downloadProgress"
         const val EVENT_DOWNLOAD_DONE = "downloadComplete"

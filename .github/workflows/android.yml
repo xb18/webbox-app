@@ -1,5 +1,6 @@
-name: 打包网页盒安卓壳
+name: 打包 网页盒安卓壳
 
+# 仅手动触发或打 android-v* tag 时构建；网页内容更新无需重发 APK。
 on:
   workflow_dispatch:
     inputs:
@@ -34,8 +35,10 @@ jobs:
         shell: bash
         run: |
           echo "ANDROID_HOME=${ANDROID_HOME:-未设置}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-未设置}"
           if [ -z "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" ]; then
-            echo "未找到 Android SDK" >&2; exit 1
+            echo "未找到 Android SDK" >&2
+            exit 1
           fi
 
       - name: 安装编译所需 SDK 组件（已存在则跳过）
@@ -45,6 +48,8 @@ jobs:
           SDKMANAGER="$(find "$SDK/cmdline-tools" -name sdkmanager -type f | head -n1)"
           if [ -n "$SDKMANAGER" ]; then
             yes | "$SDKMANAGER" --sdk_root="$SDK" "platforms;android-35" "build-tools;35.0.0" || true
+          else
+            echo "sdkmanager 未找到，使用 runner 预装组件"
           fi
           test -d "$SDK/platforms/android-35" || { echo "缺少 Android 35 platform" >&2; exit 1; }
 
@@ -57,10 +62,15 @@ jobs:
         shell: bash
         run: |
           input="${{ inputs.version }}"
-          if [ -n "$input" ]; then version="$input"
-          elif [[ "${GITHUB_REF_NAME}" == android-v* ]]; then version="${GITHUB_REF_NAME#android-v}"
-          else version="$(grep '^shellVersionName=' android/gradle.properties | cut -d= -f2)"; fi
+          if [ -n "$input" ]; then
+            version="$input"
+          elif [[ "${GITHUB_REF_NAME}" == android-v* ]]; then
+            version="${GITHUB_REF_NAME#android-v}"
+          else
+            version="$(grep '^shellVersionName=' android/gradle.properties | cut -d= -f2)"
+          fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "网页盒壳版本: ${version}"
 
       - name: 写入版本号
         if: ${{ inputs.version != '' || startsWith(github.ref_name, 'android-v') }}
@@ -76,16 +86,19 @@ jobs:
           [ -z "$code" ] && code=1
           sed -i "s/^shellVersionCode=.*/shellVersionCode=${code}/" android/gradle.properties
 
-      - name: 构建 Debug APK
+      - name: 构建 Release APK（固定签名）
         working-directory: android
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleRelease --no-daemon
 
       - name: 定位 APK
         id: apk
         shell: bash
         run: |
-          apk="$(find android/app/build/outputs/apk/debug -name '*.apk' -type f | head -n1)"
-          if [ -z "$apk" ]; then echo "未找到 APK 产物" >&2; exit 1; fi
+          apk="$(find android/app/build/outputs/apk/release -name '*.apk' -type f | head -n1)"
+          if [ -z "$apk" ]; then
+            echo "未找到 APK 产物" >&2
+            exit 1
+          fi
           name="webbox-app-${{ steps.ver.outputs.version }}.apk"
           cp "$apk" "$name"
           echo "name=${name}" >> "$GITHUB_OUTPUT"
@@ -98,62 +111,169 @@ jobs:
           path: ${{ steps.apk.outputs.name }}
           if-no-files-found: error
 
-      - name: 通过 WebDAV 发布 APK 与更新索引到通用分发目录
+      # 更新包直接上传 Cloudflare R2（S3 兼容 API），端侧从 R2 自定义域匿名下载。
+      # SigV4 签名用 Python 标准库实现，不依赖 awscli；凭据走 GitHub Secrets。
+      - name: 上传 APK 与更新索引到 R2
         if: startsWith(github.ref_name, 'android-v')
         shell: bash
         env:
-          WEBDAV_URL: ${{ secrets.WEBDAV_URL }}
-          WEBDAV_USERNAME: ${{ secrets.WEBDAV_USERNAME }}
-          WEBDAV_PASSWORD: ${{ secrets.WEBDAV_PASSWORD }}
-          WEBDAV_DIR: ${{ vars.WEBDAV_DIR || 'lanzou/appdist' }}
-          PUBLIC_BASE: ${{ vars.PUBLIC_BASE || 'https://pan.202921.xyz/sd/59uaf2bR' }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ vars.R2_BUCKET || 'cloud' }}
+          R2_ROOT: ${{ vars.R2_ROOT || 'appdist' }}
+          R2_PREFIX: ${{ vars.R2_PREFIX || 'webbox' }}
+          R2_PUBLIC_BASE: ${{ vars.R2_PUBLIC_BASE }}
           VERSION: ${{ steps.ver.outputs.version }}
           APK_NAME: ${{ steps.apk.outputs.name }}
         run: |
           missing=""
-          [ -z "$WEBDAV_URL" ] && missing="$missing WEBDAV_URL"
-          [ -z "$WEBDAV_USERNAME" ] && missing="$missing WEBDAV_USERNAME"
-          [ -z "$WEBDAV_PASSWORD" ] && missing="$missing WEBDAV_PASSWORD"
-          if [ -n "$missing" ]; then echo "缺少配置:$missing" >&2; exit 1; fi
-          base="${WEBDAV_URL%/}"
-          dir="${WEBDAV_DIR#/}"
-          auth=(-u "$WEBDAV_USERNAME:$WEBDAV_PASSWORD")
+          [ -z "$R2_ACCOUNT_ID" ] && missing="$missing R2_ACCOUNT_ID"
+          [ -z "$R2_ACCESS_KEY_ID" ] && missing="$missing R2_ACCESS_KEY_ID"
+          [ -z "$R2_SECRET_ACCESS_KEY" ] && missing="$missing R2_SECRET_ACCESS_KEY"
+          [ -z "$R2_PUBLIC_BASE" ] && missing="$missing R2_PUBLIC_BASE(variable)"
+          if [ -n "$missing" ]; then
+            echo "缺少 R2 配置:$missing" >&2
+            exit 1
+          fi
+          public_base="${R2_PUBLIC_BASE%/}"
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+          put_object() {
+            local file="$1" key="$2" ctype="$3"
+            echo "上传 $key ($(wc -c < "$file" | tr -d ' ') 字节) 到 R2/$R2_BUCKET"
+            python3 - "$file" "$key" "$ctype" <<'PY'
+          import datetime, hashlib, hmac, os, sys, urllib.request, urllib.error
+          file, key, ctype = sys.argv[1:4]
+          account = os.environ["R2_ACCOUNT_ID"]
+          access = os.environ["R2_ACCESS_KEY_ID"]
+          secret = os.environ["R2_SECRET_ACCESS_KEY"]
+          bucket = os.environ["R2_BUCKET"]
+          root = os.environ.get("R2_ROOT", "").strip("/")
+          prefix = os.environ.get("R2_PREFIX", "").strip("/")
+          host = account + ".r2.cloudflarestorage.com"
+          endpoint = "https://" + host
+          region = "auto"
+          service = "s3"
+          payload = open(file, "rb").read()
+          now = datetime.datetime.now(datetime.timezone.utc)
+          amzdate = now.strftime("%Y%m%dT%H%M%SZ")
+          datestamp = now.strftime("%Y%m%d")
+          parts = [p for p in (root, prefix, key.lstrip("/")) if p]
+          obj_key = "/".join(parts)
+          path = "/" + bucket + "/" + obj_key
+          canonical_headers = (
+              "content-type:" + ctype + "\n"
+              + "host:" + host + "\n"
+              + "x-amz-content-sha256:" + hashlib.sha256(payload).hexdigest() + "\n"
+              + "x-amz-date:" + amzdate + "\n"
+          )
+          signed_headers = "content-type;host;x-amz-content-sha256;x-amz-date"
+          canonical_request = "\n".join([
+              "PUT", path, "", canonical_headers, signed_headers,
+              hashlib.sha256(payload).hexdigest(),
+          ])
+          scope = datestamp + "/" + region + "/" + service + "/aws4_request"
+          string_to_sign = "\n".join([
+              "AWS4-HMAC-SHA256", amzdate, scope,
+              hashlib.sha256(canonical_request.encode()).hexdigest(),
+          ])
+          def sign(key, msg):
+              return hmac.new(key, msg.encode(), hashlib.sha256).digest()
+          k = sign(("AWS4" + secret).encode(), datestamp)
+          k = sign(k, region); k = sign(k, service); k = sign(k, "aws4_request")
+          sig = hmac.new(k, string_to_sign.encode(), hashlib.sha256).hexdigest()
+          auth = (
+              "AWS4-HMAC-SHA256 Credential=" + access + "/" + scope
+              + ", SignedHeaders=" + signed_headers + ", Signature=" + sig
+          )
+          req = urllib.request.Request(endpoint + path, data=payload, method="PUT", headers={
+              "Authorization": auth, "Content-Type": ctype,
+              "X-Amz-Content-Sha256": hashlib.sha256(payload).hexdigest(),
+              "X-Amz-Date": amzdate,
+          })
+          try:
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  print("  http", r.status, r.read(120).decode("utf-8", "replace"))
+          except urllib.error.HTTPError as e:
+              print("R2 上传失败:", e.code, e.read(500).decode("utf-8", "replace"), file=sys.stderr)
+              sys.exit(1)
+          PY
+          }
+
           apk_file="$(basename "$APK_NAME")"
           size=$(wc -c < "$APK_NAME" | tr -d ' ')
+          put_object "$APK_NAME" "$apk_file" "application/vnd.android.package-archive"
           index_file="webbox-app-update.txt"
-
-          echo "上传 APK: $dir/$apk_file ($size 字节)"
-          curl -fsS "${auth[@]}" -T "$APK_NAME" "$base/$dir/$apk_file"
-
-          python3 - "$apk_file" "$VERSION" "$PUBLIC_BASE" "$size" > "$index_file" <<'PY'
+          python3 - "$apk_file" "$VERSION" "$public_base" "$size" "$R2_ROOT" "$R2_PREFIX" > "$index_file" <<'PY'
           import json, sys
-          apk, version, public_base, size = sys.argv[1:5]
+          apk, version, public_base, size, root, prefix = sys.argv[1:7]
+          parts = [p.strip("/") for p in (root, prefix) if p.strip("/")]
+          base = public_base.rstrip("/") + ("".join("/" + p for p in parts))
           print(json.dumps({
               "version": version,
-              "url": public_base.rstrip("/") + "/" + apk,
+              "url": base + "/" + apk,
               "notes": "网页盒更新",
               "size": int(size),
           }, ensure_ascii=False, indent=2))
           PY
           echo "上传更新索引:"
           cat "$index_file"
-          curl -fsS "${auth[@]}" -T "$index_file" "$base/$dir/$index_file"
-          echo "发布完成"
+          put_object "$index_file" "$index_file" "text/plain; charset=utf-8"
+          echo "更新索引上传完成"
+
+      - name: 校验更新索引
+        if: startsWith(github.ref_name, 'android-v')
+        shell: bash
+        env:
+          R2_PUBLIC_BASE: ${{ vars.R2_PUBLIC_BASE }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          R2_ROOT: ${{ vars.R2_ROOT || 'appdist' }}
+          R2_PREFIX: ${{ vars.R2_PREFIX || 'webbox' }}
+        run: |
+          [ -n "$R2_PUBLIC_BASE" ] || { echo "未配置 R2_PUBLIC_BASE，跳过索引核对" >&2; exit 0; }
+          sleep 5
+          root="${R2_ROOT:-appdist}"
+          prefix="${R2_PREFIX:-webbox}"
+          parts=(); [ -n "$root" ] && parts+=("${root%/}"); [ -n "$prefix" ] && parts+=("${prefix%/}")
+          subdir=$(IFS=/; echo "${parts[*]}")
+          index_url="${R2_PUBLIC_BASE%/}/$subdir/webbox-app-update.txt"
+          body="$(curl -fsSL "$index_url")" || {
+            echo "更新索引暂不可访问，请人工核对: $index_url" >&2; exit 0; }
+          echo "$body"
+          printf '%s' "$body" | python3 -c '
+          import json,sys,os
+          try:
+              d=json.load(sys.stdin)
+          except Exception:
+              print("更新索引返回的不是 JSON，跳过核对", file=sys.stderr)
+              sys.exit(0)
+          want=os.environ["VERSION"]
+          got=d.get("version")
+          if got==want:
+            print("索引版本核对通过:", got, d.get("url"))
+          else:
+            print("索引版本仍为", got, "期望", want)
+          '
 
       - name: 创建 GitHub Release
         if: startsWith(github.ref_name, 'android-v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: 网页盒 ${{ steps.ver.outputs.version }}
+          name: 网页盒安卓壳 ${{ steps.ver.outputs.version }}
           body: |
-            通用网页容器：手动添加网址，可为每个网址添加到桌面直达。
-            网页内容更新无需重新安装；仅壳本身升级时才发新版。
+            通用网页容器：手动添加网址，添加到桌面直达
+
+            这是一个 WebView 壳，页面内容更新无需重新安装；仅当壳本身升级时才发新版。
+            安装：下载 APK 直接安装（Android 5.0+）。
           files: ${{ steps.apk.outputs.name }}
 
       - name: 输出摘要
         shell: bash
         run: |
-          echo "### 网页盒打包完成" >> "$GITHUB_STEP_SUMMARY"
+          echo "### 网页盒安卓壳打包完成" >> "$GITHUB_STEP_SUMMARY"
           echo "- 版本：${{ steps.ver.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 网址：https://dsh.202921.xyz" >> "$GITHUB_STEP_SUMMARY"
           echo "- APK：${{ steps.apk.outputs.name }}（${{ steps.apk.outputs.size }}）" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 触发：${GITHUB_REF_NAME}（${{ github.event_name }}）" >> "$GITHUB_STEP_SUMMARY"
