@@ -2,7 +2,5 @@
 /android/build/
 /android/app/build/
 /android/local.properties
-/android/keystore.jks
-/android/signing.properties
 *.apk
 .DS_Store
