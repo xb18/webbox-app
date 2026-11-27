@@ -4,6 +4,8 @@
     <string name="add_site">添加网址</string>
     <string name="site_name">名称</string>
     <string name="site_url">网址</string>
+    <string name="site_icon">图标地址（可选）</string>
+    <string name="site_icon_hint">图片直链，留空自动获取网站图标</string>
     <string name="save">保存</string>
     <string name="site_name_hint">例如：DSH 面板</string>
     <string name="site_url_hint">例如：dsh.202921.xyz</string>

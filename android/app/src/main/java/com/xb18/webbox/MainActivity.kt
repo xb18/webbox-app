@@ -391,7 +391,7 @@ class MainActivity : Activity() {
         head.addView(avatar); head.addView(texts); head.addView(arrow)
 
         executor.execute {
-            val f = ShortcutHelper.fetchFavicon(this, site.url)
+            val f = ShortcutHelper.fetchSiteIcon(this, site)
             mainHandler.post {
                 f?.let { file ->
                     try {
@@ -449,7 +449,7 @@ class MainActivity : Activity() {
 
     private fun requestAddShortcut(site: Site) {
         executor.execute {
-            val favicon = ShortcutHelper.fetchFavicon(this, site.url)
+            val favicon = ShortcutHelper.fetchSiteIcon(this, site)
             mainHandler.post {
                 val started = try { ShortcutHelper.create(this, site, favicon) }
                 catch (_: Exception) { false }
@@ -492,7 +492,25 @@ class MainActivity : Activity() {
             textSize = 15f; setTextColor(textDark)
             setPadding(dp(12), dp(12), dp(12), dp(12)); background = inputBackground()
         }
-        layout.apply { addView(nameLabel); addView(nameInput); addView(urlLabel); addView(urlInput) }
+        val iconLabel = TextView(this).apply {
+            text = getString(R.string.site_icon); textSize = 13f
+            setTextColor(textGray); setPadding(dp(2), 0, 0, dp(4))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, dp(14), 0, 0) }
+        }
+        val iconInput = EditText(this).apply {
+            hint = getString(R.string.site_icon_hint)
+            setText(site?.iconUrl.orEmpty())
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            textSize = 15f; setTextColor(textDark)
+            setPadding(dp(12), dp(12), dp(12), dp(12)); background = inputBackground()
+        }
+        layout.apply {
+            addView(nameLabel); addView(nameInput)
+            addView(urlLabel); addView(urlInput)
+            addView(iconLabel); addView(iconInput)
+        }
         AlertDialog.Builder(this)
             .setTitle(if (site == null) R.string.add_site else R.string.edit_site)
             .setView(layout)
@@ -503,7 +521,8 @@ class MainActivity : Activity() {
                     return@setPositiveButton
                 }
                 val name = nameInput.text.toString()
-                if (site == null) store.add(name, url) else store.update(site.id, name, url)
+                val icon = iconInput.text.toString()
+                if (site == null) store.add(name, url, icon) else store.update(site.id, name, url, icon)
                 refreshList()
             }
             .setNegativeButton(R.string.cancel, null)

@@ -25,6 +25,27 @@ import java.net.URL
  */
 object ShortcutHelper {
 
+    /** 站点图标：优先自定义 iconUrl，否则自动抓取 favicon；失败返回 null。 */
+    fun fetchSiteIcon(context: Context, site: Site): File? {
+        if (site.iconUrl.isNotBlank()) {
+            val cacheDir = File(context.filesDir, "icons").apply { mkdirs() }
+            val target = File(cacheDir, "custom_${site.iconUrl.hashCode()}.png")
+            if (target.exists() && target.length() > 0) return target
+            val bytes = download(site.iconUrl) ?: return fetchFavicon(context, site.url)
+            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                ?: return fetchFavicon(context, site.url)
+            return try {
+                FileOutputStream(target).use { out ->
+                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+                target
+            } catch (_: Exception) {
+                fetchFavicon(context, site.url)
+            }
+        }
+        return fetchFavicon(context, site.url)
+    }
+
     /** 抓取站点 favicon 并缓存到内部存储；失败返回 null。 */
     fun fetchFavicon(context: Context, siteUrl: String): File? {
         val host = try {
