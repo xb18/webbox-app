@@ -28,6 +28,11 @@ object ShortcutHelper {
     /** 站点图标：优先自定义 iconUrl，否则自动抓取 favicon；失败返回 null。 */
     fun fetchSiteIcon(context: Context, site: Site): File? {
         if (site.iconUrl.isNotBlank()) {
+            // 本地选图：绝对路径且文件存在，直接返回
+            if (site.iconUrl.startsWith("/")) {
+                val local = File(site.iconUrl)
+                if (local.exists() && local.length() > 0) return local
+            }
             val cacheDir = File(context.filesDir, "icons").apply { mkdirs() }
             val target = File(cacheDir, "custom_${site.iconUrl.hashCode()}.png")
             if (target.exists() && target.length() > 0) return target

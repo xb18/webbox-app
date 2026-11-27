@@ -22,6 +22,8 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.Executors
 
 /** 网址管理主界面：手动增删网址、打开网页、添加桌面快捷方式、设置与更新。 */
@@ -35,6 +37,10 @@ class MainActivity : Activity() {
     private var progressDialog: android.app.Dialog? = null
     private var progressBar: android.widget.ProgressBar? = null
     private var progressText: TextView? = null
+    private var siteDialog: AlertDialog? = null
+    private var pendingSite: Site? = null
+    private var pendingIconPath: String = ""
+    private var pendingIsNew: Boolean = true
 
     private val primary = 0xFF5B4BE6.toInt()
     private val textDark = 0xFF1F2233.toInt()
@@ -158,6 +164,31 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_PICK_ICON) {
+            if (resultCode == RESULT_OK && data?.data != null) {
+                val uri = data.data ?: return
+                executor.execute {
+                    try {
+                        val dir = File(filesDir, "icons").apply { mkdirs() }
+                        val dest = File(dir, "local_${System.currentTimeMillis()}.png")
+                        contentResolver.openInputStream(uri).use { input ->
+                            FileOutputStream(dest).use { out -> input?.copyTo(out) }
+                        }
+                        mainHandler.post {
+                            showSiteDialog(pendingSite, dest.absolutePath, pendingIsNew)
+                        }
+                    } catch (_: Exception) {
+                        mainHandler.post {
+                            Toast.makeText(this, R.string.pick_icon_failed, Toast.LENGTH_SHORT).show()
+                            showSiteDialog(pendingSite, pendingIconPath, pendingIsNew)
+                        }
+                    }
+                }
+            } else {
+                showSiteDialog(pendingSite, pendingIconPath, pendingIsNew)
+            }
+            return
+        }
         if (requestCode == REQ_SETTINGS && resultCode == SettingsActivity.RESULT_CHECK_UPDATE) {
             updater.checkUpdate()
         }
@@ -461,7 +492,8 @@ class MainActivity : Activity() {
     }
 
     /** site 为 null 时是新增，否则编辑。 */
-    private fun showSiteDialog(site: Site?) {
+    /** isNew 为 true 表示新增（即使 site 带了临时回填内容）。 */
+    private fun showSiteDialog(site: Site?, presetIcon: String = "", isNew: Boolean = site == null) {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(24), dp(8), dp(24), dp(4))
         }
@@ -499,18 +531,50 @@ class MainActivity : Activity() {
         }
         val iconInput = EditText(this).apply {
             hint = getString(R.string.site_icon_hint)
-            setText(site?.iconUrl.orEmpty())
+            setText(presetIcon.ifBlank { site?.iconUrl.orEmpty() })
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             textSize = 15f; setTextColor(textDark)
             setPadding(dp(12), dp(12), dp(12), dp(12)); background = inputBackground()
+        }
+        val pickIcon = TextView(this).apply {
+            text = getString(R.string.pick_local_icon)
+            textSize = 13f; setTextColor(primary)
+            gravity = Gravity.CENTER; setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = GradientDrawable().apply {
+                setColor(0xFFF0EEFF.toInt()); cornerRadius = dp(10).toFloat()
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, dp(8), 0, 0) }
+            setOnClickListener {
+                pendingIsNew = isNew
+                pendingIconPath = iconInput.text.toString()
+                pendingSite = (site ?: Site("", "", "")).copy(
+                    name = nameInput.text.toString(),
+                    url = SiteStore.normalizeUrl(urlInput.text.toString().ifBlank { site?.url.orEmpty() }),
+                    iconUrl = iconInput.text.toString(),
+                )
+                siteDialog?.dismiss()
+                val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    type = "image/*"
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                }
+                try {
+                    startActivityForResult(picker, REQ_PICK_ICON)
+                } catch (_: Exception) {
+                    Toast.makeText(this@MainActivity, R.string.pick_icon_failed, Toast.LENGTH_SHORT).show()
+                    siteDialog?.show()
+                }
+            }
         }
         layout.apply {
             addView(nameLabel); addView(nameInput)
             addView(urlLabel); addView(urlInput)
             addView(iconLabel); addView(iconInput)
+            addView(pickIcon)
         }
-        AlertDialog.Builder(this)
-            .setTitle(if (site == null) R.string.add_site else R.string.edit_site)
+        siteDialog = AlertDialog.Builder(this)
+            .setTitle(if (isNew) R.string.add_site else R.string.edit_site)
             .setView(layout)
             .setPositiveButton(R.string.save) { _, _ ->
                 val url = urlInput.text.toString().trim()
@@ -520,7 +584,7 @@ class MainActivity : Activity() {
                 }
                 val name = nameInput.text.toString()
                 val icon = iconInput.text.toString()
-                if (site == null) store.add(name, url, icon) else store.update(site.id, name, url, icon)
+                if (isNew || site == null) store.add(name, url, icon) else store.update(site.id, name, url, icon)
                 refreshList()
             }
             .setNegativeButton(R.string.cancel, null)
@@ -543,5 +607,6 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQ_SETTINGS = 2001
+        private const val REQ_PICK_ICON = 2002
     }
 }
