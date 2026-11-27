@@ -23,6 +23,10 @@ class SettingsActivity : Activity() {
     private val textDark = 0xFF1F2233.toInt()
     private val textGray = 0xFF9AA0AE.toInt()
 
+    companion object {
+        const val RESULT_CHECK_UPDATE = 3001
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val root = LinearLayout(this).apply {
@@ -128,12 +132,45 @@ class SettingsActivity : Activity() {
             }
         })
 
+        // 检查更新
+        val updateCard = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(dp(16), dp(12), dp(16), 0) }
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            setOnClickListener {
+                setResult(RESULT_CHECK_UPDATE)
+                finish()
+            }
+        }
+        updateCard.addView(TextView(this).apply {
+            text = "↻   检查更新"
+            textSize = 16f; setTextColor(textDark)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        updateCard.addView(TextView(this).apply {
+            text = "›"; textSize = 20f; setTextColor(textGray)
+        })
+
+        // 版本号
+        val versionText = TextView(this).apply {
+            text = "网页盒 v${BuildConfig.VERSION_NAME}"
+            textSize = 12f; setTextColor(textGray)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(20), 0, dp(20))
+        }
+
         val scroll = ScrollView(this).apply {
             addView(LinearLayout(this@SettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(card)
                 addView(hint)
                 addView(shortcutCard)
+                addView(updateCard)
+                addView(versionText)
             }, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }

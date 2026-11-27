@@ -83,25 +83,17 @@ class MainActivity : Activity() {
         }
         header.addView(title); header.addView(subtitle)
 
-        // 主操作：醒目的添加按钮
-        val addBar = primaryButton("＋  添加网址") { showSiteDialog(null) }
-        val addWrap = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(18), dp(20), dp(6))
-            addView(addBar, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
-        }
-
-        // 次操作：设置 / 检查更新，等宽卡片
-        val secondary = LinearLayout(this).apply {
+        // 操作条：添加网址为主，设置为紧凑图标按钮
+        val actionBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(20), 0, dp(20), dp(6))
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(20), dp(16), dp(20), dp(6))
         }
-        secondary.addView(secondaryButton("⚙  设置") {
-            startActivity(Intent(this, SettingsActivity::class.java))
-        }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(0, 0, dp(5), 0) })
-        secondary.addView(secondaryButton("↻  检查更新") { updater.checkUpdate() },
-            LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(dp(5), 0, 0, 0) })
+        actionBar.addView(primaryButton("＋  添加网址") { showSiteDialog(null) },
+            LinearLayout.LayoutParams(0, dp(42), 1f))
+        actionBar.addView(secondaryButton("⚙") {
+            startActivityForResult(Intent(this, SettingsActivity::class.java), REQ_SETTINGS)
+        }, LinearLayout.LayoutParams(dp(42), dp(42)).apply { setMargins(dp(8), 0, 0, 0) })
 
         listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         emptyState = LinearLayout(this).apply {
@@ -131,8 +123,7 @@ class MainActivity : Activity() {
         }
         root.apply {
             addView(header)
-            addView(addWrap)
-            addView(secondary)
+            addView(actionBar)
             addView(scroll, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         }
@@ -163,6 +154,13 @@ class MainActivity : Activity() {
             cornerRadius = dp(12).toFloat()
         }
         setOnClickListener { onClick() }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_SETTINGS && resultCode == SettingsActivity.RESULT_CHECK_UPDATE) {
+            updater.checkUpdate()
+        }
     }
 
     private fun setupUpdater() {
@@ -542,4 +540,8 @@ class MainActivity : Activity() {
     private fun hostOf(url: String): String = try {
         android.net.Uri.parse(SiteStore.normalizeUrl(url)).host ?: url
     } catch (_: Exception) { url }
+
+    companion object {
+        private const val REQ_SETTINGS = 2001
+    }
 }
