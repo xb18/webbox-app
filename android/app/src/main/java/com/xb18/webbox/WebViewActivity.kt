@@ -200,7 +200,7 @@ class WebViewActivity : Activity() {
         callback.onReceiveValue(if (uris.isEmpty()) null else uris.toTypedArray())
     }
 
-    /** 网页 acceptTypes 可能是 "image/*,application/pdf"，转成系统可识别的 MIME。 */
+    /** 网页 acceptTypes 可能含多个 MIME，转成系统可识别的单个类型。 */
     private fun resolveMimeType(params: FileChooserParams?): String {
         val accepts = params?.acceptTypes ?: return "*/*"
         val first = accepts.firstOrNull().orEmpty()
