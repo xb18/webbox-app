@@ -14,7 +14,9 @@ import android.view.ActionMode
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebChromeClient.FileChooserParams
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -38,12 +40,14 @@ class WebViewActivity : Activity() {
     private var lastSampleAt = 0L
     private val handler = Handler(Looper.getMainLooper())
     private val sampleRunnable = Runnable { sampleStatusBar() }
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
 
     companion object {
         const val EXTRA_URL = "url"
         const val EXTRA_NAME = "name"
         private const val SAMPLE_INTERVAL_MS = 120L
         private const val BRIGHTNESS_THRESHOLD = 128
+        private const val REQ_FILE_CHOOSER = 1002
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -132,6 +136,29 @@ class WebViewActivity : Activity() {
                 progress.progress = newProgress
                 progress.visibility = if (newProgress in 1..99) View.VISIBLE else View.GONE
             }
+
+            override fun onShowFileChooser(
+                webView: WebView?,
+                callback: ValueCallback<Array<Uri>>?,
+                params: FileChooserParams?,
+            ): Boolean {
+                filePathCallback?.onReceiveValue(null)
+                filePathCallback = callback
+                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = resolveMimeType(params)
+                    if (params?.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                    }
+                }
+                return try {
+                    startActivityForResult(Intent.createChooser(intent, "选择文件"), REQ_FILE_CHOOSER)
+                    true
+                } catch (_: Exception) {
+                    filePathCallback = null
+                    false
+                }
+            }
         }
 
         val container = FrameLayout(this).apply {
@@ -156,6 +183,30 @@ class WebViewActivity : Activity() {
             targetUrl = url
             webView.loadUrl(url)
         }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_FILE_CHOOSER) return
+        val callback = filePathCallback
+        filePathCallback = null
+        if (callback == null) return
+        val uris = mutableListOf<Uri>()
+        if (resultCode == RESULT_OK && data != null) {
+            data.clipData?.let { clip ->
+                for (i in 0 until clip.itemCount) uris.add(clip.getItemAt(i).uri)
+            } ?: data.data?.let { uris.add(it) }
+        }
+        callback.onReceiveValue(if (uris.isEmpty()) null else uris.toTypedArray())
+    }
+
+    /** 网页 acceptTypes 可能是 "image/*,application/pdf"，转成系统可识别的 MIME。 */
+    private fun resolveMimeType(params: FileChooserParams?): String {
+        val accepts = params?.acceptTypes ?: return "*/*"
+        val first = accepts.firstOrNull().orEmpty()
+        if (first.isBlank() || first == "*/*") return "*/*"
+        val joined = accepts.joinToString(",") { it.trim() }
+        return if (joined.contains(",")) "*/*" else first
     }
 
     /** 节流采样，避免滚动时每帧抓图。 */
